@@ -1,0 +1,91 @@
+# PIG FARM MANAGEMENT APPLICATION - TECHNICAL FEATURE DOCUMENTATION
+Target Audience: Developers, Software Engineers, System Architects
+
+This document provides a detailed breakdown of the application's architecture, core modules, and feature sets. The application is a full-stack, role-based farm management platform built using modern Web Technologies (React, TypeScript, Firebase).
+
+--------------------------------------------------------------------------------
+1. AUTHENTICATION & USER MANAGEMENT (IAM)
+--------------------------------------------------------------------------------
+- Identity Provider: Firebase Authentication (Email/Password).
+- Role-Based Access Control (RBAC):
+  Users are assigned specific roles ('ADMIN', 'STAFF', 'RESIGNED', 'PENDING').
+  - Admin: Full read/write access, approvals, payroll processing, and user role management.
+  - Staff: Restricted access (e.g., viewing their own specific data, requesting advances, submitting operational tasks).
+- Profile Management: 
+  Users can update their personal information (Phone, Line ID, Emergency Contact) and banking details for payroll systems. Resigned status locks the account and archives their records.
+
+--------------------------------------------------------------------------------
+2. CORE FARMING LOGIC (SOW & PEN MANAGEMENT)
+--------------------------------------------------------------------------------
+- Sow Lifecycle & State Machine:
+  Tracks complete reproductive cycles. Sow Status transitions map to the real-world cycle:
+  IDLE -> MATED -> PREGNANT -> LACTATING -> WEAN -> RECOVERY/CULLED.
+  Every transition is logged as an Event (Breed, Ultrasound, Farrow, Wean, Health, Cull, Heat Return).
+  
+- Pen Mapping & Location Tracking (PenMap.tsx):
+  Visual map layout representing zones (e.g., Left/Right arrays like 'L-01', 'R-50').
+  System allows drag-and-drop or location assignment of pigs into specific physical pens or holding areas.
+  
+- Task & Alert Engine (cycleEngine.ts):
+  Automated task generation based on reproductive events. Generates scheduled notifications/tasks like:
+  "Heat checks" due at specific days post-weaning, "Ultrasound" appointments, "Move to Farrowing", "Vaccination scheduling". Each task can be marked PENDING, COMPLETED, or CANCELLED.
+
+--------------------------------------------------------------------------------
+3. SALES & LOGISTICS ENGINE
+--------------------------------------------------------------------------------
+- Catching & Weighing System (NewSale.tsx):
+  Interface designed to handle live operations (batch weighing of pigs).
+  Records sequential weights (Gross Weight vs Tare/Cage Weight) to automatically calculate Net Weight.
+- Invoicing & Verification:
+  Calculates Average Weight, applies Deductions, and finalizes Total Gross and Net Costs (Amount * Price Per Kg).
+  Captures digital signatures online from the buyer immediately upon finalizing the sale.
+  Tracks payment statuses (PAID vs. UNPAID) for accounting audits.
+
+--------------------------------------------------------------------------------
+4. PAYROLL & FINANCIALS (HRM Module)
+--------------------------------------------------------------------------------
+- Bimonthly Payroll Cycles:
+  Automats slip generation strictly mapping to two periods: 1st-15th and 16th-End of Month.
+- Salary Advance Workflow:
+  Employees (Staff) request salary advances. Admins approve/reject via dashboard.
+- Automated Deduction Engine (payrollUtils.ts):
+  Approved advances automatically map logically and deduct from the appropriate period's payroll slip (e.g., advance taken on 12th deducts from the Period 1 slip). 
+- Payroll Finalization:
+  Admin modifies "Custom Incomes/Bonuses" and "Manual Deductions" before publishing the slip.
+- Exports:
+  Programmatic extraction to Excel (.xlsx/aoa_to_sheet) and automated PDF Payslip (html-to-image + jsPDF) generation formatted formally for banking audits.
+
+--------------------------------------------------------------------------------
+5. AI INTEGRATION & EXPENSE TRACKING (Bill & Feed modules)
+--------------------------------------------------------------------------------
+- AI Receipt Scanning (aiService.ts):
+  Leverages underlying AI/LLM models to via image uploads to perform OCR + Information Extraction on farm receipts. Parses Vendor Names, Totals, Taxes, and Discounts automatically.
+- Ingredient Master Data Engine (ingredientService.ts):
+  Monitors purchased items (from receipts/bills) and updates the 'master_ingredients' continuous ledger (latest price, weight, and unit). Tracks cost fluctuations of feed or medical supplies.
+- Smart Feed Formulation:
+  Allows users to optimize formulas using available inventory and cost history data logged by AI.
+
+--------------------------------------------------------------------------------
+6. COMMUNICATION & COLLABORATION
+--------------------------------------------------------------------------------
+- Social Feed / News Module:
+  Internal company board. Staff and Admins post updates natively featuring text, up to 3 images, video, and audio links. Likes/Reactions supported.
+- Real-Time Chat (chatService.ts):
+  Direct messaging, including 1-on-1 and Group chats. Features Unread Counters, read receipts, and real-time snapshot listeners using Firebase Firestore websockets.
+
+--------------------------------------------------------------------------------
+7. ASSET & EQUIPMENT MAINTENANCE (equipment folder)
+--------------------------------------------------------------------------------
+- Ticketing System: 
+  Staff report broken pen equipment, water lines, or silos.
+  Tracks maintenance state (Pending, In Progress, Resolved) tying to specific users or physical pen locations. 
+
+--------------------------------------------------------------------------------
+8. TECHNICAL ARCHITECTURE 
+--------------------------------------------------------------------------------
+- Frontend Framework: React (TypeScript) via Vite.
+- Styling: Tailwind CSS.
+- Storage/Backend: Firebase (Firestore NoSQL Database + Firebase Authentication + Firebase Storage).
+- State/Navigation: React Router, Context API (AuthContext, BottomSheetContext).
+- Firestore Error Handling globally mapped via `handleFirestoreError`.
+- Production Exports: xlsx, jspdf, html-to-image plugins.

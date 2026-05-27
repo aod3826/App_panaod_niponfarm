@@ -1,0 +1,48 @@
+======================================================================
+PIG FARM MANAGEMENT APP - CRITICAL TECHNICAL DEBT & IMPROVEMENT PLAN
+======================================================================
+Target Audience: Developers, Software Engineers, System Architects
+
+Following a thorough code audit of the current React/Firebase architecture, 
+several core modules currently have technical debt or incomplete logic that 
+will cause issues when scaling up for real-world farm usage. 
+
+Please review and assign the following tasks to the development team:
+
+(1) CRITICAL BUG: DESTRUCTIVE CULLING LOGIC (src/services/sowService.ts)
+----------------------------------------------------------------------
+- Issue: In `recordEvent`, when a Sow is logged as 'CULL' (ขายทิ้ง/คัดทิ้ง), the system executes a cascading hard-delete (`batch.delete`) on the Sow document, its historical events, and its tasks.
+- Impact: Farm KPI analytics (such as historical farrowing rates, piglets born alive averages, and lifetime performance) will be permanently lost and corrupted.
+- Solution: Implement "Soft Deletion" logic. Instead of `batch.delete`, update the sow's document status to `status: 'CULLED', isActive: false`. Modify active queries to filter out culled sows. NEVER hard-delete farm historical data.
+
+(2) CHAT ENGINE & DATA QUERY SCALABILITY (src/services/chatService.ts)
+----------------------------------------------------------------------
+- Issue: `subscribeToMessages` queries the `chat_messages` collection without any data limits (`limit()`) or pagination. `getAllUsers` also fetches the entire users list in one go.
+- Impact: As chat histories grow over months, the application will download megabytes of data upon opening the chat view, causing severe UI freezing, high RAM usage, and massive Firebase read-operation billing costs.
+- Solution: Implement cursor-based pagination (Infinite Scroll). Add `limit(50)` and `orderBy('createdAt', 'desc')` to the message fetch string. Load older messages dynamically when the user scrolls up.
+
+(3) AI RECEIPT SCANNER & PAYLOAD LIMITS (src/services/aiService.ts)
+----------------------------------------------------------------------
+- Issue: The frontend sends raw Base64 Data-URLs to `/api/receipt-analyze`. High-res mobile camera images (often 5MB - 12MB) can easily exceed Express payload limits or cause 504 timeouts on slow barn 4G connections.
+- Impact: Workers in the field will report "Analysis Failed" or "Timeout" due to heavy upload weights.
+- Solution: Implement Client-Side Image Compression (e.g., using `browser-image-compression` library) before converting to base64. Restrict image bounds to a max of 1024x1024 or 720p before uploading to the AI endpoint.
+
+(4) LACK OF OFFLINE-FIRST ARCHITECTURE (Network & PWA)
+----------------------------------------------------------------------
+- Issue: Pig farms frequently have dead zones for cellular signal. The application relies on synchronous network hits (fetch, getDocs) without a robust local caching strategy.
+- Impact: Workers recording tasks or inputting pig weights at pens might lose data if the connection drops midway.
+- Solution: 
+  a) Explicitly enable Firebase's `enableIndexedDbPersistence` in `firebase.ts` to sync writes while offline.
+  b) Implement `vite-plugin-pwa` so the app is installable as a Progressive Web App (PWA) with service workers caching static assets and core JSON APIs automatically.
+
+(5) NOTIFICATIONS & BACKGROUND TASK ENGINE (src/services/cycleEngine.ts)
+----------------------------------------------------------------------
+- Issue: Production tasks (Ultrasound, Farrowing routines) are mathematically generated at the time of breeding. However, the system is strictly "Pull-based" (users only see tasks when actively staring at the app screen).
+- Impact: Farm managers will easily miss time-sensitive events (like returning heats window) if they simply forget to log in.
+- Solution: Integrate Firebase Cloud Messaging (FCM) Web Push Notifications. Write backend Cloud Functions or a Cron job on the backend server that executes daily at 07:00 AM, queries due tasks, and pushes notifications directly to workers' mobile phones.
+
+(6) PDF GENERATION RELIABILITY (Payroll & Feed Formulation)
+----------------------------------------------------------------------
+- Issue: `PayrollSummary` and `FeedFormulation` rely on `html-to-image` rendering hidden DOM nodes off-canvas. 
+- Impact: Browser-specific rendering quirks (missing font loads, mobile DPI scaling, iOS Safari canvas limits) often cut off PDF text unexpectedly or generate blurry payslips.
+- Solution: Transition away from DOM scraping. Refactor to inject the JSON data directly into `jsPDF` coordinate space or use `jspdf-autotable`. Better yet, move PDF generation strictly to the Node.js API boundary for 100% consistent print layouts.

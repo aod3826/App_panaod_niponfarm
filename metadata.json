@@ -1,0 +1,10 @@
+{
+  "name": "Remix: Nipon Farm App",
+  "description": "แอปพลิเคชันจัดการฟาร์ม นิพนธ์ฟาร์ม",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
