@@ -4,11 +4,9 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import https from "https";
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
 
-  app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "50mb" }));
 
   // Log API requests for debugging
   app.use((req, res, next) => {
@@ -219,6 +217,11 @@ async function startServer() {
     }
   });
 
+export default app;
+
+async function startServer() {
+  const PORT = 3000;
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -238,6 +241,8 @@ async function startServer() {
   });
 }
 
-startServer().catch(err => {
-  console.error("CRITICAL: Server failed to start:", err);
-});
+if (process.env.VERCEL !== "1") {
+  startServer().catch(err => {
+    console.error("CRITICAL: Server failed to start:", err);
+  });
+}
