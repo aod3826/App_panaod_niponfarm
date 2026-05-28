@@ -8,6 +8,7 @@ export default function Login() {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail, user, loading } = useAuth();
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   // Email form state
   const [isSignUp, setIsSignUp] = useState(false);
@@ -25,10 +26,12 @@ export default function Login() {
 
   const handleGoogleLogin = async () => {
     setErrorMessage(null);
+    setErrorCode(null);
     try {
       await signInWithGoogle();
     } catch (err: any) {
       console.error('Login error:', err);
+      setErrorCode(err?.code || null);
       if (err.code === 'auth/popup-closed-by-user') {
         setErrorMessage('คุณปิดหน้าต่างล็อกอินเร็วเกินไป โปรดรอให้หน้าต่างโหลดเสร็จหรือลอง "เปิดในแท็บใหม่"');
       } else if (err.code === 'auth/popup-blocked') {
@@ -55,6 +58,7 @@ export default function Login() {
     }
 
     setErrorMessage(null);
+    setErrorCode(null);
     setIsSubmitting(true);
 
     try {
@@ -65,6 +69,7 @@ export default function Login() {
       }
     } catch (err: any) {
       console.error('Email authentication error:', err);
+      setErrorCode(err?.code || null);
       if (err.code === 'auth/invalid-email') {
         setErrorMessage('รูปแบบอีเมลไม่ถูกต้อง');
       } else if (err.code === 'auth/wrong-password') {
@@ -140,6 +145,22 @@ export default function Login() {
                   <li>กดปุ่มที่รูป <b>สี่เหลี่ยมมีลูกศรชี้ออก</b> (Open in new tab)</li>
                   <li>เครื่องจะเปิดหน้าเว็บใหม่ ให้ลองล็อกอินอีกครั้งในหน้านั้นครับ</li>
                 </ol>
+              </div>
+            )}
+            {isSignUp && errorCode === 'auth/email-already-in-use' && (
+              <div className="text-xs text-red-500 dark:text-red-400/90 leading-relaxed pl-7 mt-1 border-t border-red-200 dark:border-red-900/20 pt-2 flex flex-col gap-1.5">
+                <p>ดูเหมือนว่าคุณเคยลงทะเบียนอีเมลนี้ไว้แล้วนะครับ ต้องการเข้าสู่ระบบด้วยอีเมลนี้เลยไหมครับ?</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUp(false);
+                    setErrorCode(null);
+                    setErrorMessage(null);
+                  }}
+                  className="w-full text-center py-2 bg-red-100 dark:bg-red-950/80 hover:bg-[#00bcd4] hover:text-white border border-red-200 dark:border-red-900/40 rounded-xl font-bold text-[#00a8bd] dark:text-[#00bcd4] dark:hover:text-white transition-all outline-none"
+                >
+                  👉 คลิกที่นี่เพื่อสลับเป็น "เข้าสู่ระบบ" ได้ทันทีครับ
+                </button>
               </div>
             )}
           </div>
