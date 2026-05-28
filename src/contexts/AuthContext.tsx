@@ -1,17 +1,22 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { onSnapshot, doc } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
-import { UserProfile } from '../types';
-import { getUserProfile, createUserProfile } from '../services/userService';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { useBottomSheet } from './BottomSheetContext';
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  displayName: string;
+  role: 'ADMIN' | 'STAFF' | 'PENDING' | 'RESIGNED';
+  createdAt?: string;
+}
 
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
   userProfile: UserProfile | null;
   loading: boolean;
   authError?: string | null;
-  signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -27,140 +32,169 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const { showAlert } = useBottomSheet();
 
-  useEffect(() => {
-    let unsubscribeProfile: (() => void) | null = null;
-    let authFlowLoadingTimeout: NodeJS.Timeout | null = null;
-
-    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-        unsubscribeProfile = null;
-      }
-      if (authFlowLoadingTimeout) {
-        clearTimeout(authFlowLoadingTimeout);
-      }
-
-      if (currentUser) {
-        setLoading(true);
-        setAuthError(null);
-
-        // Fail-safe timeout
-        authFlowLoadingTimeout = setTimeout(() => {
-          setLoading(false);
-        }, 5000); 
-
-        const isOwnerEmail = currentUser.email === 'panaod3826@gmail.com';
-
-        // Listen for profile changes in real-time
-        // onSnapshot is generally faster and more resilient than getDoc for the primary app state
-        unsubscribeProfile = onSnapshot(doc(db, 'users', currentUser.uid), async (snapshot) => {
-          if (authFlowLoadingTimeout) clearTimeout(authFlowLoadingTimeout);
-          
-          if (snapshot.exists()) {
-            setUserProfile(snapshot.data() as UserProfile);
-            setLoading(false);
-          } else {
-            // Totally new user or missing profile document
-            if (navigator.onLine) {
-              const targetRole = isOwnerEmail ? 'ADMIN' : 'STAFF';
-              try {
-                const newProfile = await createUserProfile(
-                  currentUser.uid,
-                  currentUser.email || '',
-                  currentUser.displayName || 'Unknown',
-                  targetRole
-                );
-                setUserProfile(newProfile);
-              } catch (err) {
-                console.error("Auto-creation failed:", err);
-              }
-            } else {
-              // Offline and no profile found in cache
-              setAuthError('ไม่พบข้อมูลโปรไฟล์ในรูปแบบออฟไลน์');
-            }
-            // Even if creation fails, we must eventually stop loading
-            setLoading(false);
-          }
-        }, (err) => {
-          console.error("Profile sync error:", err);
-          setLoading(false);
-          if (err.message?.includes('offline')) {
-            setAuthError('คุณกำลังใช้งานในโหมดออฟไลน์ ข้อมูลอาจไม่เป็นปัจจุบัน');
-          }
-        });
-      } else {
-        setUserProfile(null);
-        setLoading(false);
-        if (authFlowLoadingTimeout) clearTimeout(authFlowLoadingTimeout);
-      }
-    });
-
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeProfile) unsubscribeProfile();
-      if (authFlowLoadingTimeout) clearTimeout(authFlowLoadingTimeout);
-    };
-  }, []);
-
-  const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
+  // Fetch or create user profile
+  const fetchOrCreateProfile = async (currentUser: User) => {
     try {
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      console.error("Error signing in with Google", error);
-      
-      // Handle specific Firebase Auth errors
-      if (error.code === 'auth/popup-closed-by-user') {
-        showAlert("คุณปิดหน้าต่างล็อกอินก่อนที่จะเสร็จสิ้น กรุณาลองใหม่อีกครั้ง หรือใช้ปุ่ม 'เปิดในแท็บใหม่'");
-      } else if (error.code === 'auth/unauthorized-domain') {
-        showAlert("โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Console");
+      // Try to get existing profile
+      const { data: existingProfile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
+
+      if (existingProfile) {
+        setUserProfile({
+          id: existingProfile.id,
+          email: existingProfile.email || currentUser.email || '',
+          displayName: existingProfile.display_name || currentUser.user_metadata?.display_name || 'Unknown',
+          role: existingProfile.role || 'PENDING',
+          createdAt: existingProfile.created_at,
+        });
+        return;
       }
-      
-      // Re-throw so Login.tsx handleLogin can also react
-      throw error;
+
+      // If no profile exists, create one
+      if (fetchError?.code === 'PGRST116') {
+        const isOwnerEmail = currentUser.email === 'panaod3826@gmail.com';
+        const newRole = isOwnerEmail ? 'ADMIN' : 'PENDING';
+        
+        const { data: newProfile, error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id: currentUser.id,
+            email: currentUser.email,
+            display_name: currentUser.user_metadata?.display_name || 'Unknown',
+            role: newRole,
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Error creating profile:', insertError);
+          // Set a temporary profile from user data
+          setUserProfile({
+            id: currentUser.id,
+            email: currentUser.email || '',
+            displayName: currentUser.user_metadata?.display_name || 'Unknown',
+            role: isOwnerEmail ? 'ADMIN' : 'STAFF',
+          });
+          return;
+        }
+
+        if (newProfile) {
+          setUserProfile({
+            id: newProfile.id,
+            email: newProfile.email || currentUser.email || '',
+            displayName: newProfile.display_name || 'Unknown',
+            role: newProfile.role,
+            createdAt: newProfile.created_at,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching profile:', err);
+      // Fallback: create profile from user data
+      const isOwnerEmail = currentUser.email === 'panaod3826@gmail.com';
+      setUserProfile({
+        id: currentUser.id,
+        email: currentUser.email || '',
+        displayName: currentUser.user_metadata?.display_name || 'Unknown',
+        role: isOwnerEmail ? 'ADMIN' : 'STAFF',
+      });
     }
   };
 
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      
+      if (currentSession?.user) {
+        fetchOrCreateProfile(currentSession.user).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, currentSession) => {
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
+        
+        if (currentSession?.user) {
+          await fetchOrCreateProfile(currentSession.user);
+        } else {
+          setUserProfile(null);
+        }
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
   const signInWithEmail = async (email: string, password: string) => {
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error: any) {
-      console.error("Error signing in with Email/Password", error);
+    setAuthError(null);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error('Error signing in:', error);
       throw error;
     }
   };
 
   const signUpWithEmail = async (email: string, password: string, displayName: string) => {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      if (userCredential.user) {
-        await updateProfile(userCredential.user, { displayName });
-      }
-    } catch (error: any) {
-      console.error("Error signing up with Email/Password", error);
+    setAuthError(null);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          display_name: displayName,
+        },
+      },
+    });
+    
+    if (error) {
+      console.error('Error signing up:', error);
       throw error;
     }
   };
 
   const logout = async () => {
     try {
-      await signOut(auth);
+      await supabase.auth.signOut();
+      setUserProfile(null);
     } catch (error) {
-      console.error("Error signing out", error);
+      console.error('Error signing out:', error);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, authError, signInWithGoogle, signInWithEmail, signUpWithEmail, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      session,
+      userProfile, 
+      loading, 
+      authError, 
+      signInWithEmail, 
+      signUpWithEmail, 
+      logout 
+    }}>
       {children}
     </AuthContext.Provider>
   );
 };
-

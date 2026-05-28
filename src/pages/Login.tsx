@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ExternalLink, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
 import PigLogo from '../components/PigLogo';
 
 export default function Login() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail, user, loading } = useAuth();
+  const { signInWithEmail, signUpWithEmail, user, loading } = useAuth();
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Email form state
   const [isSignUp, setIsSignUp] = useState(false);
@@ -23,26 +24,6 @@ export default function Login() {
     }
   }, [user, loading, navigate]);
 
-  const handleGoogleLogin = async () => {
-    setErrorMessage(null);
-    try {
-      await signInWithGoogle();
-    } catch (err: any) {
-      console.error('Login error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setErrorMessage('คุณปิดหน้าต่างล็อกอินเร็วเกินไป โปรดรอให้หน้าต่างโหลดเสร็จหรือลอง "เปิดในแท็บใหม่"');
-      } else if (err.code === 'auth/popup-blocked') {
-        setErrorMessage('เบราว์เซอร์บล็อกหน้าต่างป๊อปอัป โปรดกดที่ไอคอน "เปิดในแท็บใหม่" มุมขวาบนครับ');
-      } else if (err.code === 'auth/network-request-failed') {
-        setErrorMessage('การเชื่อมต่อล้มเหลว โปรดลอง "เปิดในแท็บใหม่" เพื่อความเสถียรสูงสุด');
-      } else if (err.code === 'auth/unauthorized-domain') {
-        setErrorMessage('โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Console โปรดเพิ่มโดเมนนี้ใน Authorized Domains ของคุณ');
-      } else {
-        setErrorMessage('เกิดข้อผิดพลาด: ' + (err.message || 'โปรดลองใหม่อีกครั้ง'));
-      }
-    }
-  };
-
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -55,30 +36,34 @@ export default function Login() {
     }
 
     setErrorMessage(null);
+    setSuccessMessage(null);
     setIsSubmitting(true);
 
     try {
       if (isSignUp) {
         await signUpWithEmail(email, password, displayName);
+        setSuccessMessage('สมัครสมาชิกสำเร็จ! กรุณาตรวจสอบอีเมลเพื่อยืนยันบัญชี หรือลองเข้าสู่ระบบได้เลย');
+        setIsSignUp(false);
+        setPassword('');
       } else {
         await signInWithEmail(email, password);
       }
     } catch (err: any) {
       console.error('Email authentication error:', err);
-      if (err.code === 'auth/invalid-email') {
-        setErrorMessage('รูปแบบอีเมลไม่ถูกต้อง');
-      } else if (err.code === 'auth/wrong-password') {
-        setErrorMessage('รหัสผ่านไม่ถูกต้อง');
-      } else if (err.code === 'auth/user-not-found') {
-        setErrorMessage('ไม่พบข้อมูลบัญชีผู้ใช้นี้');
-      } else if (err.code === 'auth/email-already-in-use') {
-        setErrorMessage('อีเมลนี้ถูกลงทะเบียนไว้เรียบร้อยแล้ว');
-      } else if (err.code === 'auth/weak-password') {
-        setErrorMessage('รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
-      } else if (err.code === 'auth/invalid-credential') {
+      
+      // Handle Supabase error messages
+      const errorCode = err?.code || err?.message || '';
+      
+      if (errorCode.includes('invalid_credentials') || errorCode.includes('Invalid login credentials')) {
         setErrorMessage('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
-      } else if (err.code === 'auth/user-disabled') {
-        setErrorMessage('บัญชีนี้ถูกระงับการใช้งาน');
+      } else if (errorCode.includes('email_not_confirmed')) {
+        setErrorMessage('กรุณายืนยันอีเมลของคุณก่อนเข้าสู่ระบบ');
+      } else if (errorCode.includes('user_already_exists') || errorCode.includes('User already registered')) {
+        setErrorMessage('อีเมลนี้ถูกลงทะเบียนไว้เรียบร้อยแล้ว');
+      } else if (errorCode.includes('weak_password')) {
+        setErrorMessage('รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
+      } else if (errorCode.includes('invalid_email')) {
+        setErrorMessage('รูปแบบอีเมลไม่ถูกต้อง');
       } else {
         setErrorMessage('เกิดข้อผิดพลาด: ' + (err.message || 'โปรดลองใหม่อีกครั้ง'));
       }
@@ -111,37 +96,35 @@ export default function Login() {
         <div className="flex border-b border-slate-200 dark:border-white/10 mb-6 font-semibold text-sm">
           <button
             type="button"
-            onClick={() => { setIsSignUp(false); setErrorMessage(null); }}
+            onClick={() => { setIsSignUp(false); setErrorMessage(null); setSuccessMessage(null); }}
             className={`flex-1 pb-3 text-center transition-colors border-b-2 outline-none ${!isSignUp ? 'border-[#00bcd4] text-[#00bcd4]' : 'border-transparent text-slate-400 dark:text-white/50 hover:text-slate-600 dark:hover:text-white/85'}`}
           >
             เข้าสู่ระบบ
           </button>
           <button
             type="button"
-            onClick={() => { setIsSignUp(true); setErrorMessage(null); }}
+            onClick={() => { setIsSignUp(true); setErrorMessage(null); setSuccessMessage(null); }}
             className={`flex-1 pb-3 text-center transition-colors border-b-2 outline-none ${isSignUp ? 'border-[#00bcd4] text-[#00bcd4]' : 'border-transparent text-slate-400 dark:text-white/50 hover:text-slate-600 dark:hover:text-white/85'}`}
           >
             สมัครสมาชิกใหม่
           </button>
         </div>
 
+        {/* Success Message */}
+        {successMessage && (
+          <div className="p-4 bg-green-50 dark:bg-green-950/40 border border-green-100 dark:border-green-900/40 rounded-2xl text-green-600 dark:text-green-400 text-sm font-medium text-left flex items-start gap-2">
+            <span className="block mt-0.5 text-lg">&#10003;</span>
+            <span>{successMessage}</span>
+          </div>
+        )}
+
         {/* Error Message */}
         {errorMessage && (
           <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/40 rounded-2xl text-red-600 dark:text-red-400 text-sm font-medium text-left flex flex-col gap-2">
             <div className="flex items-start gap-2">
-              <span className="block mt-0.5 text-lg">⚠️</span>
+              <span className="block mt-0.5 text-lg">&#9888;</span>
               <span className="font-bold">{errorMessage}</span>
             </div>
-            {!isSignUp && errorMessage.includes('โดเมนนี้ยังไม่ได้รับอนุญาต') && (
-              <div className="text-xs text-red-500 dark:text-red-400/90 leading-relaxed pl-7">
-                <p className="mb-1 font-bold italic underline">วิธีแก้ปัญหาที่ได้ผลที่สุด:</p>
-                <ol className="list-decimal space-y-1">
-                  <li>มองไปที่ <b>มุมขวาบนสุด</b> ของหน้าจอนี้</li>
-                  <li>กดปุ่มที่รูป <b>สี่เหลี่ยมมีลูกศรชี้ออก</b> (Open in new tab)</li>
-                  <li>เครื่องจะเปิดหน้าเว็บใหม่ ให้ลองล็อกอินอีกครั้งในหน้านั้นครับ</li>
-                </ol>
-              </div>
-            )}
           </div>
         )}
 
@@ -190,7 +173,7 @@ export default function Login() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isSignUp ? "อย่างน้อย 6 ตัวอักษร" : "••••••••"}
+                placeholder={isSignUp ? "อย่างน้อย 6 ตัวอักษร" : "รหัสผ่าน"}
                 className="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-[#113d46]/50 border border-slate-200 dark:border-white/10 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/30 focus:outline-none focus:border-[#00bcd4] focus:ring-1 focus:ring-[#00bcd4] transition-all text-sm"
               />
               <button
@@ -216,37 +199,10 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="relative flex py-1 items-center">
-          <div className="flex-grow border-t border-slate-100 dark:border-white/10 animate-pulse"></div>
-          <span className="flex-shrink mx-4 text-xs font-semibold text-slate-400 dark:text-white/40 uppercase tracking-widest text-[10px]">หรือใช้วิธีอื่น</span>
-          <div className="flex-grow border-t border-slate-100 dark:border-white/10 animate-pulse"></div>
-        </div>
-
-        {/* Google sign in button alternative */}
-        <button 
-          type="button"
-          onClick={handleGoogleLogin}
-          disabled={isBtnDisabled}
-          className="w-full bg-white dark:bg-white/5 text-slate-800 dark:text-white hover:bg-slate-50 dark:hover:bg-white/10 font-bold py-3 px-4 rounded-2xl flex items-center justify-center gap-3 active:scale-95 transition-all shadow-sm border border-slate-200 dark:border-white/15 disabled:opacity-50 disabled:cursor-not-allowed group text-sm"
-        >
-          {loading && !isSubmitting ? (
-            <div className="w-5 h-5 border-2 border-slate-400 border-t-slate-800 dark:border-white/30 dark:border-t-white rounded-full animate-spin"></div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <div className="bg-white p-1 rounded-lg">
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-4 h-4" />
-              </div>
-              <span>เข้าสู่ระบบด้วย Google</span>
-            </div>
-          )}
-        </button>
-
-        {/* Notice/Tips */}
+        {/* Info box */}
         <div className="text-left bg-[#00bcd4]/10 dark:bg-[#00bcd4]/5 p-4 rounded-2xl border border-[#00bcd4]/20 dark:border-[#00bcd4]/10 backdrop-blur-sm">
-          <p className="text-xs text-[#00a8bd] dark:text-[#00bcd4] flex items-start gap-2 leading-relaxed">
-            <ExternalLink className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>หากต้องการใช้งาน Google Sign-In และพบปัญหาเกี่ยวกับโดเนม (unauthorized auth-domain) คุณสามารถกดปุ่ม <strong>"เปิดในแท็บใหม่" (Open in new tab)</strong> ที่ปุ่มมุมขวาบนสุดของหน้าจอ เพื่อล็อกอินผ่านโดเมนตรงได้เช่นกันครับ</span>
+          <p className="text-xs text-[#00a8bd] dark:text-[#00bcd4] leading-relaxed">
+            <span className="font-semibold">ยินดีต้อนรับ!</span> ระบบนิพนธ์ฟาร์มใช้การยืนยันตัวตนผ่านอีเมลและรหัสผ่าน สมัครสมาชิกได้เลยครับ
           </p>
         </div>
       </div>
